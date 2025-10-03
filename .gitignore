@@ -1,0 +1,34 @@
+# ## General ##
+# Ignore sensitive environment files
+.env
+.env.*
+
+# Ignore cached Spotify token
+token.json
+
+
+# ## User-Generated Directories ##
+# Ignore directories with downloaded audio files
+/songs/
+/test_audio/
+backend/tmp/
+
+
+# ## Go Dependencies & Build Artifacts ##
+# Ignore compiled executables. The name is often the directory name.
+*.exe
+
+
+# ## Logs ##
+# Ignore log files
+*.log
+*.out
+
+
+# ## IDE & System Files ##
+# Ignore metadata from common editors and operating systems
+.vscode/
+.idea/
+.DS_Store
+*.swp
+*~
