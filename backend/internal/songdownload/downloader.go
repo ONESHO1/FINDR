@@ -19,22 +19,55 @@ const SONGS_DIRECTORY string = "songs"
 
 
 func download(tracks []sp.Track, path string) (error) {
+	/* WaitGroup is a synchronization tool used 
+	to wait for a collection of goroutines to finish.
+	TS is basically a counter.
+	*/
 	var wg sync.WaitGroup
 	// var downloadedTracks []string
 	var NoOfTracks int = 0
 
+	/* chan = buffered channel
+	basically a communication pipe that allows different goroutines to send and receive data safely
+	*/
+
+	// channel to record number of tracks we successfully downloaded
 	results := make(chan int, len(tracks))
+
+	// get number of cores in our CPU
 	numCPUs := runtime.NumCPU()
+	// fmt.Println(numCPUs)
+
+	/*
+	A classic Go idiom for creating a semaphore. 
+	A semaphore is used to limit the number of goroutines that can run a piece of code at the same time.
+
+	It's a buffered channel of struct{}. 
+	An empty struct (struct{}) is used because it takes up zero memory; 
+	we only care about the blocking behavior of the channel, not the data being sent.
+
+	By setting the size to numCPUs, 
+	we ensure that a maximum of numCPUs goroutines can "acquire" a slot in the semaphore at any given time. 
+	Any other goroutine trying to acquire a slot will block until one is freed.
+	*/
 	semaphore := make(chan struct{}, numCPUs)
 
 	// TODO: establish DB connection
 
 	for _, t := range tracks {
+		// add to WaitGroup
 		wg.Add(1)
+
+		// start a goroutine (lightweight thread managed by the Go runtime for concurrency)
+		// also need to pass t as a parameter so we create a copy, if we pass t directly, the last t from tracks will be the value seen
 		go func(track sp.Track) {
+			// defer -> schedules a function call to be run just before the current function returns.
+			// wg.Done -> decrement WaitGroup by 1
 			defer wg.Done()
 
+			// acquire a slot in the semaphore
 			semaphore <- struct{}{}
+			// release a slot in the semaphore at the end
 			defer func() {
 				<- semaphore
 			}()
@@ -72,11 +105,19 @@ func download(tracks []sp.Track, path string) (error) {
 			// fingerprint song
 
 			// delete file
+
+			results <- 1
 		}(t)
 	}
 
+	// must be inside a new goroutine
 	go func() {
+		/*
+		This blocks the new goroutine until the WaitGroup counter becomes zero. 
+		It effectively pauses here until all the download goroutines have called wg.Done().
+		*/
 		wg.Wait()
+		// close the results channel
 		close(results)
 	}()
 

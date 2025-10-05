@@ -10,12 +10,12 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/buger/jsonparser"
 	"github.com/kkdai/youtube/v2"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/ONESHO1/FINDR/backend/internal/utils"
 	sp "github.com/ONESHO1/FINDR/backend/internal/spotify"
 )
 
@@ -27,7 +27,8 @@ type SearchResult struct {
 }
 
 var httpClient = &http.Client{}
-const durationThreshold = 5
+const DURATION_THRESHOLD = 5
+const MAX_RETRIES = 20
 
 func getContent(data []byte, index int) []byte {
 	id := fmt.Sprintf("[%d]", index)
@@ -173,8 +174,8 @@ func GetYtID(tmpTrack *sp.Track) (string, error) {
 
 	// return the option with the closest matching timestamp
 	for _, res := range searchResults {
-		allowedStart := songDuration - durationThreshold
-		allowedEnd := songDuration + durationThreshold
+		allowedStart := songDuration - DURATION_THRESHOLD
+		allowedEnd := songDuration + DURATION_THRESHOLD
 
 		resultDuration := convertStringDurationToSeconds(res.Duration)
 		if resultDuration >= allowedStart && resultDuration <= allowedEnd {
@@ -201,48 +202,71 @@ func DownloadYtAudio(ytID, path, filePath string) (error) {
 		return err
 	}
 
-	client := youtube.Client{}
-	video, err := client.GetVideo(ytID)
-	if err != nil {
-		log.Error("Error getting the yt video")
-		return err
-	}
+	var DELAY = 2 * time.Second
 
-	/*
-	itag code: 140, container: m4a, content: audio, bitrate: 128k
-	change the FindByItag parameter to 139 if you want smaller files (but with a bitrate of 48k)
-	https://gist.github.com/sidneys/7095afe4da4ae58694d128b1034e01e2
-	*/
-	formats := video.Formats.Itag(140)
+	for i := 0; i < MAX_RETRIES; i++ {
+		log.Info(fmt.Sprintf("Download attempt %d/%d for ytID: %s", i, MAX_RETRIES, ytID))
+		
 
-	var fileSize int64
-	file, err := os.Create(filePath)
-	if err != nil {
-		log.Error("Error creating File")
-		return err
-	}
+		err = func() error {
+			client := youtube.Client{}
 
+			video, err := client.GetVideo(ytID)
+			// fmt.Println(video)
+			if err != nil {
+				return fmt.Errorf("error getting video metadata: %w", err)
+			}
 
-	/*
-	in some cases, when attempting to download the audio
-	using the library github.com/kkdai/youtube,
-	the download fails (and shows the file size as 0 bytes)
-	until the second or third attempt.
-	*/
-	for fileSize == 0 {
-		stream, _, err := client.GetStream(video, &formats[0])
-		if err != nil {
-			log.Error("Error getting stream")
+			/*
+			itag code: 140, container: m4a, content: audio, bitrate: 128k
+			change the FindByItag parameter to 139 if you want smaller files (but with a bitrate of 48k)
+			https://gist.github.com/sidneys/7095afe4da4ae58694d128b1034e01e2
+			*/
+			formats := video.Formats.Itag(140)
+			if len(formats) == 0 {
+				return fmt.Errorf("no suitable audio format (itag 140) found")
+			}
+
+			stream, size, err := client.GetStream(video, &formats[0])
+			println(size)
+			if err != nil {
+				return fmt.Errorf("error getting stream: %w", err)
+			}
+			defer stream.Close()
+
+			file, err := os.Create(filePath)
+			fmt.Print("CREATED FILE \n\n")
+			if err != nil {
+				return fmt.Errorf("error creating file: %w", err)
+			}
+			defer file.Close()
+
+			_, err = io.Copy(file, stream)
+			if err != nil {
+				return fmt.Errorf("error copying stream to file: %w", err)
+			}
+
+			fileInfo, err := file.Stat()
+			if err == nil && fileInfo.Size() > 0 {
+				log.Infof("Successfully downloaded '%s' to '%s'", video.Title, filePath)
+				return nil // success
+			}
+			
+			return errors.New("download completed but file is empty")
+		}()
+		
+		if err == nil {
+			return nil
 		}
 
-		if _, err := io.Copy(file, stream); err != nil {
-			log.Error("Error copyting stream to file")
-		}
+		// if error
+		log.Errorf("%v. Retrying in %v", err, DELAY)
+		os.Remove(filePath)
+		time.Sleep(DELAY)
+		DELAY *= 2		
 
-		fileSize, _ = utils.GetFileSize(filePath)
 	}
-	defer file.Close()
 
-	return nil
+	return fmt.Errorf("failed to download video %s after %d attempts. RETRY AFTER SOME TIME", ytID, MAX_RETRIES)
 
 }
