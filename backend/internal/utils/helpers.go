@@ -4,11 +4,14 @@ import (
 	"os"
 	"runtime"
 	"strings"
+
+	"github.com/ONESHO1/FINDR/backend/internal/log"
 )
 
 func GetFileSize(file string) (int64, error) {
 	fileInfo, err := os.Stat(file)
 	if err != nil {
+		log.Logger.WithError(err).WithField("file", file).Error("Failed to get file info (os.Stat)")
 		return 0, err
 	}
 

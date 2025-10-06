@@ -8,8 +8,9 @@ import (
 	"strings"
 	"sync"
 	
-	log "github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus"
 
+	"github.com/ONESHO1/FINDR/backend/internal/log"
 	sp "github.com/ONESHO1/FINDR/backend/internal/spotify"
 	"github.com/ONESHO1/FINDR/backend/internal/utils"
 	yt "github.com/ONESHO1/FINDR/backend/internal/youtube"
@@ -85,8 +86,12 @@ func download(tracks []sp.Track, path string) (error) {
 			// Get youtube ID
 			ytID, err := yt.GetYtID(tmpTrack)
 			if ytID == "" || err != nil{
-				log.Error(fmt.Sprintf("'%s' by '%s' could not be downloaded (inside download())", tmpTrack.Title, tmpTrack.Artist))
-				return 
+				log.Logger.WithFields(logrus.Fields{
+					"title":  tmpTrack.Title,
+					"artist": tmpTrack.Artist,
+					"error":  err,
+				}).Error("Could not get YouTube ID for track")
+				return
 			}
 			// fmt.Println(ytID)
 			
@@ -97,8 +102,12 @@ func download(tracks []sp.Track, path string) (error) {
 			// download audio file from youtube
 			err = yt.DownloadYtAudio(ytID, path, filePath)
 			if err != nil {
-				log.Error(fmt.Sprintf("%s by %s could not be downloaded", tmpTrack.Title, tmpTrack.Artist))
-				log.Error(err)
+				log.Logger.WithFields(logrus.Fields{
+					"title": tmpTrack.Title,
+					"artist": tmpTrack.Artist,
+					"ytID": ytID,
+					"error": err,
+				}).Error("Could not download youtube audio")
 				return
 			}
 
@@ -125,24 +134,26 @@ func download(tracks []sp.Track, path string) (error) {
 		NoOfTracks++
 	}
 
-	log.Info(fmt.Sprintf("Total tracks downloaded: %d", NoOfTracks))
+	log.Logger.WithField("count", NoOfTracks).Info("Finished download process")
 	return nil
 }
 
 func downloadTrack(link string, path string) (error) {
 	// get track info
-	log.Info("Getting Track Info")
+	log.Logger.Info("Getting Track Info")
 	trackInfo, err := sp.TrackInfo(link)
 	if err != nil {
-		fmt.Println("Could not get track's info")
-		log.Error(err)
+		// fmt.Println("Could not get track's info")
+		// log.Error(err)
+		log.Logger.WithError(err).WithField("link", link).Error("Could not get track's info")
+		return err
 	}
 
 	// fmt.Println(trackInfo)
 	// list of tracks with a single track
 	track := []sp.Track{*trackInfo}
 
-	log.Info("Downloading Track")
+	log.Logger.Info("Downloading Track")
 	err = download(track, path)
 	if err != nil {
 		return err
@@ -151,21 +162,19 @@ func downloadTrack(link string, path string) (error) {
 	return nil
 }
 
-func GetSongFromSpotify(spotifyLink string) (){
+func GetSongFromSpotify(spotifyLink string) {
 	err := os.MkdirAll(SONGS_DIRECTORY, 0755)
 	if err != nil {
-		fmt.Println("Could not create SONGS DIRECTORY")
-		log.Error(err)
+		log.Logger.WithError(err).WithField("directory", SONGS_DIRECTORY).Error("Could not create songs directory")
+		return
 	}
 
 	if strings.Contains(spotifyLink, "track") {
 		err = downloadTrack(spotifyLink, SONGS_DIRECTORY)
 		if err != nil {
-			fmt.Println("Could not download track")
-			log.Error(err)
+			log.Logger.WithError(err).Error("The download process failed")
 		}
 	} else {
-		fmt.Println("expected single track")
-		fmt.Println("INVALID URL")
+		log.Logger.WithField("url", spotifyLink).Warn("Invalid Spotify URL: expected a track link")
 	}
 }

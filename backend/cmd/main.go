@@ -1,25 +1,23 @@
 package main
 
 import (
-	"fmt"
 	"os"
 
 	"github.com/joho/godotenv"
-	log "github.com/sirupsen/logrus"
 
+	"github.com/ONESHO1/FINDR/backend/internal/log"
 	dl "github.com/ONESHO1/FINDR/backend/internal/songdownload"
 )
 
 func main(){
-	// setup to get file and line number for error logs
-	log.SetReportCaller(true)
-
-	if len(os.Args) < 1 {
-		fmt.Printf("Expected 'add' or 'findr' commands")
-	}
-
 	// load ENV
 	_ = godotenv.Load()
+
+	log.Init()
+
+	if len(os.Args) < 2 {
+		log.Logger.Fatal("Expected 'add' or 'findr' commands")
+	}
 
 	// for i, arg := range os.Args{
 	// 	fmt.Printf("argument %d: %s\n", i, arg)
@@ -31,11 +29,15 @@ func main(){
 		// TODO: Get audio file from file path
 		// saveSong(os.Args[2])
 
+		if len(os.Args) < 3 {
+			log.Logger.Fatal("Missing Spotify link for 'add' command")
+		}
+
 		// get audio file from spotify link
 		dl.GetSongFromSpotify(os.Args[2])
 	case "findr":
-		fmt.Println("stil havent implemented")
+		log.Logger.Info("still havent implemented")
 	default:
-		fmt.Printf("Expected 'add' or 'findr' command")
+		log.Logger.Fatalf("Unknown command: %s. Expected 'add' or 'findr'", os.Args[1])
 	}
 }

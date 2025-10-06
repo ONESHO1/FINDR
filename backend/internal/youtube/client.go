@@ -14,8 +14,9 @@ import (
 
 	"github.com/buger/jsonparser"
 	"github.com/kkdai/youtube/v2"
-	log "github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus"
 
+	"github.com/ONESHO1/FINDR/backend/internal/log"
 	sp "github.com/ONESHO1/FINDR/backend/internal/spotify"
 )
 
@@ -58,15 +59,18 @@ func convertStringDurationToSeconds(durationStr string) int {
 // simple http GET request to youtube to 
 func ytSearch(query string, limit int) (results []*SearchResult, err error){
 	searchURL := fmt.Sprintf("https://www.youtube.com/results?search_query=%s", url.QueryEscape(query))
+	log.Logger.WithField("url", searchURL).Debug("Performing YouTube search")
 
 	req, err := http.NewRequest("GET", searchURL, nil)
 	if err != nil {
-		return nil, errors.New("cannot get youtube page")
+		log.Logger.WithError(err).Error("Failed to create YouTube search request")
+		return nil, err
 	}
 	req.Header.Add("Accept-Language", "en")
 	res, err := httpClient.Do(req)
 	if err != nil {
-		return nil, errors.New("cannot get youtube page")
+		log.Logger.WithError(err).Error("Failed to execute YouTube search request")
+		return nil, err
 	}
 
 	defer func(Body io.ReadCloser) {
@@ -74,12 +78,15 @@ func ytSearch(query string, limit int) (results []*SearchResult, err error){
 	}(res.Body)
 
 	if res.StatusCode != 200 {
-		return nil, errors.New("failed to make a request to youtube")
+		err = fmt.Errorf("bad status code: %d", res.StatusCode)
+		log.Logger.WithField("status_code", res.StatusCode).Error("YouTube search returned non-200 status")
+		return nil, err
 	}
 
 	buffer, err := ioutil.ReadAll(res.Body)
 	if err != nil {
-		return nil, errors.New("cannot read response from youtube")
+		log.Logger.WithError(err).Error("Failed to read YouTube search response body")
+		return nil, err
 	}
 
 	body := string(buffer)
@@ -89,7 +96,9 @@ func ytSearch(query string, limit int) (results []*SearchResult, err error){
 	}
 
 	if len(splitScript) != 2 {
-		return nil, errors.New("invalid response from youtube")
+		err = errors.New("could not find ytInitialData in response body")
+		log.Logger.Error(err.Error() + " (YouTube page structure may have changed)")
+		return nil, err
 	}
 	splitScript = strings.Split(splitScript[1], `window["ytInitialPlayerResponse"] = null;`)
 	jsonData := []byte(splitScript[0])
@@ -168,7 +177,8 @@ func GetYtID(tmpTrack *sp.Track) (string, error) {
 		return "", err
 	}
 	if len(searchResults) == 0 {
-		err = fmt.Errorf("no songs found for %s", searchQuery)
+		err = fmt.Errorf("no songs found for query: %s", searchQuery)
+		log.Logger.WithField("query", searchQuery).Warn("YouTube search returned no results")
 		return "", err
 	}
 
@@ -179,12 +189,21 @@ func GetYtID(tmpTrack *sp.Track) (string, error) {
 
 		resultDuration := convertStringDurationToSeconds(res.Duration)
 		if resultDuration >= allowedStart && resultDuration <= allowedEnd {
-			log.Info("INFO: ", fmt.Sprintf("Found song with id '%s'", res.ID))
+			log.Logger.WithFields(logrus.Fields{
+				"track_title":   tmpTrack.Title,
+				"youtube_title": res.Title,
+				"youtube_id":    res.ID,
+				"track_dur":     tmpTrack.Duration,
+				"youtube_dur":   resultDuration,
+			}).Info("Found suitable YouTube video for track")
 			return res.ID, nil
 		}
 	}
 
-	return "", fmt.Errorf("could not settle on a song from search result for: %s", searchQuery)
+	err = fmt.Errorf("could not find a suitable video for query: %s", searchQuery)
+	// using warn log
+	log.Logger.WithField("query", searchQuery).Warn("No YouTube video found within duration threshold")
+	return "", err
 }
 
 
@@ -192,21 +211,25 @@ func GetYtID(tmpTrack *sp.Track) (string, error) {
 func DownloadYtAudio(ytID, path, filePath string) (error) {
 	dir, err := os.Stat(path)
 	if err != nil {
-		log.Error(errors.New("error accessing path"))
+		log.Logger.WithError(err).WithField("path", path).Error("Cannot access download path")
 		return err
 	}
 
 	if !dir.IsDir() {
-		err := errors.New("the path is not valid (not a dir)")
-		log.Error("Invalid directory path")
+		err := fmt.Errorf("path is not a directory: %s", path)
+		// REFACTORED: Replaced unstructured log.Error
+		log.Logger.WithField("path", path).Error(err)
 		return err
 	}
 
 	var DELAY = 2 * time.Second
 
 	for i := 0; i < MAX_RETRIES; i++ {
-		log.Info(fmt.Sprintf("Download attempt %d/%d for ytID: %s", i, MAX_RETRIES, ytID))
-		
+		log.Logger.WithFields(logrus.Fields{
+			"attempt":     i + 1,
+			"max_retries": MAX_RETRIES,
+			"ytID":        ytID,
+		}).Info("Attempting to download video")		
 
 		err = func() error {
 			client := youtube.Client{}
@@ -228,18 +251,18 @@ func DownloadYtAudio(ytID, path, filePath string) (error) {
 			}
 
 			stream, size, err := client.GetStream(video, &formats[0])
-			println(size)
 			if err != nil {
 				return fmt.Errorf("error getting stream: %w", err)
 			}
 			defer stream.Close()
+			log.Logger.WithField("bytes", size).Debug("Got video stream")
 
 			file, err := os.Create(filePath)
-			fmt.Print("CREATED FILE \n\n")
 			if err != nil {
 				return fmt.Errorf("error creating file: %w", err)
 			}
 			defer file.Close()
+			log.Logger.WithField("filePath", filePath).Debug("Created temporary file")
 
 			_, err = io.Copy(file, stream)
 			if err != nil {
@@ -248,8 +271,12 @@ func DownloadYtAudio(ytID, path, filePath string) (error) {
 
 			fileInfo, err := file.Stat()
 			if err == nil && fileInfo.Size() > 0 {
-				log.Infof("Successfully downloaded '%s' to '%s'", video.Title, filePath)
-				return nil // success
+				log.Logger.WithFields(logrus.Fields{
+					"video_title": video.Title,
+					"file_path":   filePath,
+					"size_bytes":  fileInfo.Size(),
+				}).Info("Successfully downloaded audio file")
+				return nil // Success
 			}
 			
 			return errors.New("download completed but file is empty")
@@ -260,13 +287,17 @@ func DownloadYtAudio(ytID, path, filePath string) (error) {
 		}
 
 		// if error
-		log.Errorf("%v. Retrying in %v", err, DELAY)
+		log.Logger.WithError(err).WithFields(logrus.Fields{
+			"ytID":     ytID,
+			"retry_in": DELAY,
+		}).Warn("Download attempt failed, retrying...")
 		os.Remove(filePath)
 		time.Sleep(DELAY)
 		DELAY *= 2		
 
 	}
 
-	return fmt.Errorf("failed to download video %s after %d attempts. RETRY AFTER SOME TIME", ytID, MAX_RETRIES)
-
+	finalErr := fmt.Errorf("failed to download video %s after %d attempts", ytID, MAX_RETRIES)
+	log.Logger.WithField("ytID", ytID).Error(finalErr)
+	return finalErr
 }
