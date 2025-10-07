@@ -14,6 +14,7 @@ import (
 	sp "github.com/ONESHO1/FINDR/backend/internal/spotify"
 	"github.com/ONESHO1/FINDR/backend/internal/utils"
 	yt "github.com/ONESHO1/FINDR/backend/internal/youtube"
+	"github.com/ONESHO1/FINDR/backend/internal/wav"
 )
 
 const SONGS_DIRECTORY string = "songs"
@@ -111,6 +112,44 @@ func download(tracks []sp.Track, path string) (error) {
 				return
 			}
 
+			// convert to wav file (single channel)
+			wavFilePath, err := wav.ConvertToWav(filePath, 1)
+			if err != nil {
+				log.Logger.WithFields(logrus.Fields{
+					"title":  track.Title,
+					"artist": track.Artist,
+					"file":   filePath,
+					"error":  err,
+				}).Error("Processing failed at WAV conversion step")
+				return
+			}
+
+			// read the wav file info
+			wavInfo, err := wav.WavInfo(wavFilePath)
+			if err != nil {
+				log.Logger.WithFields(logrus.Fields{
+					"title":  track.Title,
+					"artist": track.Artist,
+					"file":   filePath,
+					"wav file": wavFilePath,
+					"error":  err,
+				}).Error("Could'nt get the WAV info from header")
+				return
+			}
+
+			// convert the wav bytes into samples
+			samples, err := wav.Samples(wavInfo.Data)
+			if err != nil {
+				log.Logger.WithFields(logrus.Fields{
+					"title":  track.Title,
+					"artist": track.Artist,
+					"file":   filePath,
+					"wav file": wavFilePath,
+					"error":  err,
+				}).Error("Error converting WAV bytes to samples")
+				return
+			}
+			fmt.Println(samples)
 			// fingerprint song
 
 			// delete file
