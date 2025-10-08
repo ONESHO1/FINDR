@@ -15,6 +15,7 @@ import (
 	"github.com/ONESHO1/FINDR/backend/internal/utils"
 	yt "github.com/ONESHO1/FINDR/backend/internal/youtube"
 	"github.com/ONESHO1/FINDR/backend/internal/wav"
+	"github.com/ONESHO1/FINDR/backend/internal/fingerprint-algorithm"
 )
 
 const SONGS_DIRECTORY string = "songs"
@@ -116,8 +117,8 @@ func download(tracks []sp.Track, path string) (error) {
 			wavFilePath, err := wav.ConvertToWav(filePath, 1)
 			if err != nil {
 				log.Logger.WithFields(logrus.Fields{
-					"title":  track.Title,
-					"artist": track.Artist,
+					"title":  tmpTrack.Title,
+					"artist": tmpTrack.Artist,
 					"file":   filePath,
 					"error":  err,
 				}).Error("Processing failed at WAV conversion step")
@@ -128,8 +129,8 @@ func download(tracks []sp.Track, path string) (error) {
 			wavInfo, err := wav.WavInfo(wavFilePath)
 			if err != nil {
 				log.Logger.WithFields(logrus.Fields{
-					"title":  track.Title,
-					"artist": track.Artist,
+					"title":  tmpTrack.Title,
+					"artist": tmpTrack.Artist,
 					"file":   filePath,
 					"wav file": wavFilePath,
 					"error":  err,
@@ -141,16 +142,42 @@ func download(tracks []sp.Track, path string) (error) {
 			samples, err := wav.Samples(wavInfo.Data)
 			if err != nil {
 				log.Logger.WithFields(logrus.Fields{
-					"title":  track.Title,
-					"artist": track.Artist,
+					"title":  tmpTrack.Title,
+					"artist": tmpTrack.Artist,
 					"file":   filePath,
 					"wav file": wavFilePath,
 					"error":  err,
 				}).Error("Error converting WAV bytes to samples")
 				return
 			}
-			fmt.Println(samples)
+			// fmt.Println(samples)
+
+
+			// Register songs	
+			// songID, err := dbClient.RegisterSong(tmpTrack.Title, tmpTrack.Artist, ytID)
+			var songID uint32 = 20 
+
 			// fingerprint song
+			fingerprint, err := fingerprintalgorithm.FingerprintFromSamples(samples, wavInfo.SampleRate, wavInfo.Duration, songID)
+			if err != nil {
+				log.Logger.WithFields(logrus.Fields{
+					"title":  tmpTrack.Title,
+					"artist": tmpTrack.Artist,
+					"error":  err,
+				}).Error("Processing failed at fingerprinting step")
+
+				// delete songID
+				return
+			}
+			// fmt.Println(fingerprint)
+			// tmp
+			log.Logger.WithFields(logrus.Fields{
+				"title":            tmpTrack.Title,
+				"artist":           tmpTrack.Artist,
+				"fingerprint count": len(fingerprint),
+			}).Info("Successfully generated fingerprints for track")
+
+			// store fingerprints
 
 			// delete file
 

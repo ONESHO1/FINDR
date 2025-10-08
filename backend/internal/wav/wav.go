@@ -38,7 +38,7 @@ func ConvertToWav(filePath string, channels int) (wavFilePath string, err error)
 		"-i", 					// set input 
 		filePath,				// input file 
 		"-c", 					// set Codec
-		"pcm-s16le",			// Pulse Code Modulation (standard for raw, uncompressed audio) | signed 16-bit, little-endian. This is the standard bit depth and byte order for CD-quality audio.
+		"pcm_s16le",			// Pulse Code Modulation (standard for raw, uncompressed audio) | signed 16-bit, little-endian. This is the standard bit depth and byte order for CD-quality audio.
 		"-ar", 					// Audio Rate
 		"44100",				// 44100 Hz (written in the research paper)
 		"-ac", 					// set number of audio channels
