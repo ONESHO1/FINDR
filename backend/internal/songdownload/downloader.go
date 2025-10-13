@@ -16,6 +16,7 @@ import (
 	yt "github.com/ONESHO1/FINDR/backend/internal/youtube"
 	"github.com/ONESHO1/FINDR/backend/internal/wav"
 	"github.com/ONESHO1/FINDR/backend/internal/fingerprint-algorithm"
+	db "github.com/ONESHO1/FINDR/backend/internal/db"
 )
 
 const SONGS_DIRECTORY string = "songs"
@@ -55,7 +56,12 @@ func download(tracks []sp.Track, path string) (error) {
 	*/
 	semaphore := make(chan struct{}, numCPUs)
 
-	// TODO: establish DB connection
+	// establish DB connection
+	db, err := db.NewDbClient()
+	if err != nil {
+		return err
+	}
+	defer db.Close()
 
 	for _, t := range tracks {
 		// add to WaitGroup
@@ -83,8 +89,25 @@ func download(tracks []sp.Track, path string) (error) {
 				Title:    track.Title,
 			}
 
-			// TODO: check if song exists in DB
-
+			// check if song exists in DB
+			songKey := utils.GenerateSongKey(track.Title, track.Artist)
+            _, found, err := db.GetSongByKey(songKey)
+            if err != nil {
+                log.Logger.WithFields(logrus.Fields{
+                    "title":  track.Title,
+                    "artist": track.Artist,
+                    "error":  err,
+                }).Error("Failed to check if song exists in DB")
+                return // Exit if we can't check the DB.
+            }
+            if found {
+                log.Logger.WithFields(logrus.Fields{
+                    "title":  track.Title,
+                    "artist": track.Artist,
+                }).Info("Song already exists in the database, skipping.")
+                return
+            }
+			
 			// Get youtube ID
 			ytID, err := yt.GetYtID(tmpTrack)
 			if ytID == "" || err != nil{
@@ -154,8 +177,13 @@ func download(tracks []sp.Track, path string) (error) {
 
 
 			// Register songs	
-			// songID, err := dbClient.RegisterSong(tmpTrack.Title, tmpTrack.Artist, ytID)
-			var songID uint32 = 20 
+			songID, err := db.RegisterSong(track.Title, track.Artist)
+            if err != nil {
+                log.Logger.WithFields(logrus.Fields{
+                    "title": track.Title, "artist": track.Artist, "error": err,
+                }).Error("Failed to register song in database")
+                return
+            }
 
 			// fingerprint song
 			fingerprint, err := fingerprintalgorithm.FingerprintFromSamples(samples, wavInfo.SampleRate, wavInfo.Duration, songID)
@@ -165,8 +193,10 @@ func download(tracks []sp.Track, path string) (error) {
 					"artist": tmpTrack.Artist,
 					"error":  err,
 				}).Error("Processing failed at fingerprinting step")
-
 				// delete songID
+				if delErr := db.DeleteSongByID(songID); delErr != nil {
+                    log.Logger.WithError(delErr).Error("Failed to delete orphaned song entry")
+                }
 				return
 			}
 			// fmt.Println(fingerprint)
@@ -178,8 +208,23 @@ func download(tracks []sp.Track, path string) (error) {
 			}).Info("Successfully generated fingerprints for track")
 
 			// store fingerprints
+			if err := db.StoreFingerprints(fingerprint); err != nil {
+                log.Logger.WithFields(logrus.Fields{
+                    "title": track.Title, "artist": track.Artist, "error": err,
+                }).Error("Failed to store fingerprints")
+                if delErr := db.DeleteSongByID(songID); delErr != nil {
+                    log.Logger.WithError(delErr).Error("Failed to delete orphaned song entry")
+                }
+                return
+            }
+			
+			// TODO: delete files (after testing)
 
-			// delete file
+			log.Logger.WithFields(logrus.Fields{
+				"title":            tmpTrack.Title,
+				"artist":           tmpTrack.Artist,
+				"fingerprint count": len(fingerprint),
+			}).Info("Successfully saved fingerprints in db")
 
 			results <- 1
 		}(t)

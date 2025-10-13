@@ -1,6 +1,9 @@
 package utils
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
 	"os"
 	"runtime"
 	"strings"
@@ -33,4 +36,19 @@ func RemoveInvalid(title, artist string) (string, string) {
 	}
 
 	return title, artist
+}
+
+func GenerateSongKey(title, artist string) string {
+	// Normalize strings to lowercase and trim whitespace
+	normalizedTitle := strings.ToLower(strings.TrimSpace(title))
+	normalizedArtist := strings.ToLower(strings.TrimSpace(artist))
+
+	// Create a consistent input string, e.g., "the beatles-yesterday"
+	input := fmt.Sprintf("%s-%s", normalizedArtist, normalizedTitle)
+
+	// Hash the input string using SHA-256
+	hashBytes := sha256.Sum256([]byte(input))
+
+	// Convert the hash to a hexadecimal string for database storage
+	return hex.EncodeToString(hashBytes[:])
 }
