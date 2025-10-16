@@ -4,6 +4,7 @@ go 1.25.1
 
 require (
 	github.com/buger/jsonparser v1.1.1
+	github.com/gen2brain/malgo v0.11.24
 	github.com/jackc/pgx/v5 v5.7.6
 	github.com/joho/godotenv v1.5.1
 	github.com/kkdai/youtube/v2 v2.10.4

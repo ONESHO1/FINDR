@@ -7,6 +7,7 @@ import (
 
 	"github.com/ONESHO1/FINDR/backend/internal/log"
 	dl "github.com/ONESHO1/FINDR/backend/internal/songdownload"
+	"github.com/ONESHO1/FINDR/backend/internal/match"
 )
 
 func main(){
@@ -36,7 +37,8 @@ func main(){
 		// get audio file from spotify link
 		dl.GetSongFromSpotify(os.Args[2])
 	case "findr":
-		log.Logger.Info("still havent implemented")
+		// log.Logger.Info("still havent implemented")
+		match.Record()
 	default:
 		log.Logger.Fatalf("Unknown command: %s. Expected 'add' or 'findr'", os.Args[1])
 	}

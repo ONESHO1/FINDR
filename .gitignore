@@ -11,6 +11,7 @@ token.json
 # Ignore directories with downloaded audio files
 /songs/
 /test_audio/
+/recordings/
 backend/tmp/
 
 

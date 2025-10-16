@@ -85,6 +85,28 @@ type WavHeader struct {
 	Subchunk2Size uint32
 }
 
+// chatgpt for the actual values wooooooooooooo !!!!!!!!!!!!
+func WriteWavHeader(file *os.File, dataSize uint32, sampleRate, bitsPerSample, channels uint16) error {
+	header := WavHeader{
+		ChunkID:       [4]byte{'R', 'I', 'F', 'F'},
+		ChunkSize:     uint32(36 + dataSize),
+		Format:        [4]byte{'W', 'A', 'V', 'E'},
+		Subchunk1ID:   [4]byte{'f', 'm', 't', ' '},
+		Subchunk1Size: uint32(16),						// for PCM (look up wav header details)
+		AudioFormat:   uint16(1), 						// PCM format
+		NumChannels:   uint16(channels),
+		SampleRate:    uint32(sampleRate),
+		BytesPerSec:   uint32(sampleRate) * uint32(channels) * uint32(bitsPerSample/8),
+		BlockAlign:    uint16(channels * bitsPerSample / 8),
+		BitsPerSample: uint16(bitsPerSample),
+		Subchunk2ID:   [4]byte{'d', 'a', 't', 'a'},
+		Subchunk2Size: dataSize,
+	}
+	
+	err := binary.Write(file, binary.LittleEndian, header)
+	return err
+}
+
 // get the required wav informaton from the header of the wav file
 func WavInfo(filePath string) (*WavInformation, error) {
 	data, err := os.ReadFile(filePath)

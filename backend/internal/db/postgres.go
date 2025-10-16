@@ -15,6 +15,7 @@ type PostgresClient struct {
 	db *sql.DB
 }
 
+// serves up a new client of type PostgresClient
 func newPostgresClient(connectionString string) (*PostgresClient, error) {
 	db, err := sql.Open("pgx", connectionString)
 	if err != nil {
@@ -32,6 +33,7 @@ func newPostgresClient(connectionString string) (*PostgresClient, error) {
 	return &PostgresClient{db: db}, nil
 }
 
+// creates the two tables need for FINDR, also creates an index to imporve fingerprint matching performance
 func createTables(db *sql.DB) (error) {
 	createSongsTable := `
 	CREATE TABLE IF NOT EXISTS songs (
@@ -76,6 +78,7 @@ func createTables(db *sql.DB) (error) {
 	return nil
 }
 
+// closes the db connection
 func (c *PostgresClient) Close() (error) {
 	if c.db != nil {
 		return c.db.Close()
@@ -83,6 +86,7 @@ func (c *PostgresClient) Close() (error) {
 	return nil
 }
 
+// store fingerprints using a transaction (does nothing for duplicates)
 func (c *PostgresClient) StoreFingerprints(fingerprints map[uint32]fingerprintalgorithm.Couple) (error) {
 	tx, err := c.db.Begin()
 	if err != nil {
@@ -100,8 +104,8 @@ func (c *PostgresClient) StoreFingerprints(fingerprints map[uint32]fingerprintal
 	}
 	defer stmt.Close()
 
-	for address, couple := range fingerprints {
-		if _, err := stmt.Exec(address, couple.AnchorTimeMs, couple.SongID); err != nil {
+	for hash, couple := range fingerprints {
+		if _, err := stmt.Exec(hash, couple.AnchorTimeMs, couple.SongID); err != nil {
 			return fmt.Errorf("error executing statement: %w", err)
 		}
 	} 
@@ -109,6 +113,7 @@ func (c *PostgresClient) StoreFingerprints(fingerprints map[uint32]fingerprintal
 	return tx.Commit()
 }
 
+// retrieve couples that match the addresses (hashes) | returns map where key is a hash and the value is a slice of all Couples found for that hash in the database.
 func (c *PostgresClient) GetCouples(addresses []uint32) (map[uint32][]fingerprintalgorithm.Couple, error) {
 	couples := make(map[uint32][]fingerprintalgorithm.Couple)
 
@@ -136,6 +141,7 @@ func (c *PostgresClient) GetCouples(addresses []uint32) (map[uint32][]fingerprin
 	return couples, nil
 }
 
+// return total number of songs
 func (c *PostgresClient) TotalSongs() (int, error) {
 	var count int
 	err := c.db.QueryRow("SELECT COUNT(*) FROM songs").Scan(&count)
@@ -146,6 +152,7 @@ func (c *PostgresClient) TotalSongs() (int, error) {
 	return count, nil
 }
 
+// register song and return the generated songID
 func (c *PostgresClient) RegisterSong(songTitle, songArtist string) (uint32, error){
 	songKey := utils.GenerateSongKey(songTitle, songArtist)
 
@@ -163,7 +170,7 @@ func (c *PostgresClient) RegisterSong(songTitle, songArtist string) (uint32, err
 	return songID, nil
 }
 
-// interface is the same as any (to make it flexiblt)
+// A flexible, internal function to retrieve a single song by either its id or its unique key. | interface is the same as any (to make it flexiblt)
 func (c *PostgresClient) GetSong(filterKey string, value interface{}) (Song, bool, error) {
 	validFilterKeys := map[string]bool{"id": true, "key": true}
 
@@ -187,16 +194,18 @@ func (c *PostgresClient) GetSong(filterKey string, value interface{}) (Song, boo
 
 	return song, true, nil
 }
-
+ 
+// read the function name
 func (c *PostgresClient) GetSongByID(songID uint32) (Song, bool, error) {
 	return c.GetSong("id", songID)
 }
 
+// read the function name
 func (db *PostgresClient) GetSongByKey(key string) (Song, bool, error) {
 	return db.GetSong("key", key)
 }
 
-// DeleteSongByID deletes a song by ID
+// delete a song by ID
 func (db *PostgresClient) DeleteSongByID(songID uint32) error {
 	_, err := db.db.Exec("DELETE FROM songs WHERE id = $1", songID)
 	if err != nil {
@@ -205,7 +214,7 @@ func (db *PostgresClient) DeleteSongByID(songID uint32) error {
 	return nil
 }
 
-// DeleteCollection deletes a collection (table) from the database
+// delete a table from the database
 func (db *PostgresClient) DeleteCollection(collectionName string) error {
 	_, err := db.db.Exec(fmt.Sprintf("DROP TABLE IF EXISTS %s", collectionName))
 	if err != nil {

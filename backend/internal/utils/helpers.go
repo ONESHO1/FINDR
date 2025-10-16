@@ -38,6 +38,7 @@ func RemoveInvalid(title, artist string) (string, string) {
 	return title, artist
 }
 
+// TODO: maybe change this
 func GenerateSongKey(title, artist string) string {
 	// Normalize strings to lowercase and trim whitespace
 	normalizedTitle := strings.ToLower(strings.TrimSpace(title))
