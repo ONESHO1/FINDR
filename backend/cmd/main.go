@@ -38,7 +38,7 @@ func main(){
 		dl.GetSongFromSpotify(os.Args[2])
 	case "findr":
 		// log.Logger.Info("still havent implemented")
-		match.Record()
+		match.RecordAndFind()
 	default:
 		log.Logger.Fatalf("Unknown command: %s. Expected 'add' or 'findr'", os.Args[1])
 	}

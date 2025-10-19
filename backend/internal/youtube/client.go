@@ -8,12 +8,12 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/buger/jsonparser"
-	"github.com/kkdai/youtube/v2"
 	"github.com/sirupsen/logrus"
 
 	"github.com/ONESHO1/FINDR/backend/internal/log"
@@ -207,7 +207,7 @@ func GetYtID(tmpTrack *sp.Track) (string, error) {
 }
 
 
-// "github.com/kkdai/youtube/v2"
+// using yt-dlp
 func DownloadYtAudio(ytID, path, filePath string) (error) {
 	dir, err := os.Stat(path)
 	if err != nil {
@@ -217,80 +217,47 @@ func DownloadYtAudio(ytID, path, filePath string) (error) {
 
 	if !dir.IsDir() {
 		err := fmt.Errorf("path is not a directory: %s", path)
-		// REFACTORED: Replaced unstructured log.Error
 		log.Logger.WithField("path", path).Error(err)
 		return err
 	}
 
 	var DELAY = 2 * time.Second
+	videoURL := "https://www.youtube.com/watch?v=" + ytID
 
 	for i := 0; i < MAX_RETRIES; i++ {
 		log.Logger.WithFields(logrus.Fields{
 			"attempt":     i + 1,
 			"max_retries": MAX_RETRIES,
 			"ytID":        ytID,
-		}).Info("Attempting to download video")		
+		}).Info("Attempting to download video")
+		
+		cmd := exec.Command("yt-dlp",
+			"--no-playlist",
+			"-f", "140", 		// code for 128k M4A audio
+			"-o", filePath, 	// Specify the exact output file path and name
+			videoURL,
+		)
 
-		err = func() error {
-			client := youtube.Client{}
-
-			video, err := client.GetVideo(ytID)
-			// fmt.Println(video)
-			if err != nil {
-				return fmt.Errorf("error getting video metadata: %w", err)
-			}
-
-			/*
-			itag code: 140, container: m4a, content: audio, bitrate: 128k
-			change the FindByItag parameter to 139 if you want smaller files (but with a bitrate of 48k)
-			https://gist.github.com/sidneys/7095afe4da4ae58694d128b1034e01e2
-			*/
-			formats := video.Formats.Itag(140)
-			if len(formats) == 0 {
-				return fmt.Errorf("no suitable audio format (itag 140) found")
-			}
-
-			stream, size, err := client.GetStream(video, &formats[0])
-			if err != nil {
-				return fmt.Errorf("error getting stream: %w", err)
-			}
-			defer stream.Close()
-			log.Logger.WithField("bytes", size).Debug("Got video stream")
-
-			file, err := os.Create(filePath)
-			if err != nil {
-				return fmt.Errorf("error creating file: %w", err)
-			}
-			defer file.Close()
-			log.Logger.WithField("filePath", filePath).Debug("Created temporary file")
-
-			_, err = io.Copy(file, stream)
-			if err != nil {
-				return fmt.Errorf("error copying stream to file: %w", err)
-			}
-
-			fileInfo, err := file.Stat()
-			if err == nil && fileInfo.Size() > 0 {
+		output, err := cmd.CombinedOutput()
+		if err == nil { 		// success
+			// verify the file
+			fileInfo, checkErr := os.Stat(filePath)
+			if checkErr == nil && fileInfo.Size() > 0 {
 				log.Logger.WithFields(logrus.Fields{
-					"video_title": video.Title,
 					"file_path":   filePath,
 					"size_bytes":  fileInfo.Size(),
-				}).Info("Successfully downloaded audio file")
-				return nil // Success
+				}).Info("Successfully downloaded and verified audio file")
+				return nil 		// Success
 			}
-			
-			return errors.New("download completed but file is empty")
-		}()
-		
-		if err == nil {
-			return nil
 		}
-
+		
 		// if error
 		log.Logger.WithError(err).WithFields(logrus.Fields{
 			"ytID":     ytID,
 			"retry_in": DELAY,
+			"yt-dlp-output": string(output),
 		}).Warn("Download attempt failed, retrying...")
+
 		os.Remove(filePath)
 		time.Sleep(DELAY)
 		DELAY *= 2		
