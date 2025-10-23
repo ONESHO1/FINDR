@@ -1,10 +1,14 @@
 package youtube
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
+	// "math/rand"
+
+	// "math/rand"
 	"net/http"
 	"net/url"
 	"os"
@@ -56,7 +60,7 @@ func convertStringDurationToSeconds(durationStr string) int {
 	}
 }
 
-// simple http GET request to youtube to 
+// simple http GET request to youtube to | Not using ts, using yt-dlp
 func ytSearch(query string, limit int) (results []*SearchResult, err error){
 	searchURL := fmt.Sprintf("https://www.youtube.com/results?search_query=%s", url.QueryEscape(query))
 	log.Logger.WithField("url", searchURL).Debug("Performing YouTube search")
@@ -167,43 +171,50 @@ func ytSearch(query string, limit int) (results []*SearchResult, err error){
 	return results, nil
 }
 
+// use yt-dlp's methods instead of the ytSearch function's simple GET request
 func GetYtID(tmpTrack *sp.Track) (string, error) {
-	songDuration := tmpTrack.Duration
+	// songDuration := tmpTrack.Duration
 
-	searchQuery := fmt.Sprintf("'%s' %s", tmpTrack.Title, tmpTrack.Artist)
+	// searchQuery := fmt.Sprintf("'%s' %s", tmpTrack.Title, tmpTrack.Artist)
+	searchQuery := fmt.Sprintf("ytsearch1:'%s %s'", tmpTrack.Title, tmpTrack.Artist)
 
-	searchResults, err := ytSearch(searchQuery, 10)
+	// // Testing sleeping to avoid youtube's 403 CAPTCHA error
+	// time.Sleep(time.Duration(5000+rand.Intn(10000)) * time.Millisecond) // Sleep for 0.5-1.5 seconds
+
+	// only 30 seconds allowed for a search, wlse it DCs
+	ctx, cancel := context.WithTimeout(context.Background(), 30 * time.Second)
+	defer cancel()
+
+	log.Logger.WithFields(logrus.Fields{
+		"track_title": tmpTrack.Title,
+		"query":       searchQuery,
+	}).Info("Searching for YouTube ID using yt-dlp")
+
+	cmd := exec.CommandContext(ctx, "yt-dlp", "--get-id", searchQuery)
+
+	op, err := cmd.Output()
 	if err != nil {
-		return "", err
-	}
-	if len(searchResults) == 0 {
-		err = fmt.Errorf("no songs found for query: %s", searchQuery)
-		log.Logger.WithField("query", searchQuery).Warn("YouTube search returned no results")
-		return "", err
-	}
-
-	// return the option with the closest matching timestamp
-	for _, res := range searchResults {
-		allowedStart := songDuration - DURATION_THRESHOLD
-		allowedEnd := songDuration + DURATION_THRESHOLD
-
-		resultDuration := convertStringDurationToSeconds(res.Duration)
-		if resultDuration >= allowedStart && resultDuration <= allowedEnd {
-			log.Logger.WithFields(logrus.Fields{
+		// logging if there is a error
+		if ee, ok := err.(*exec.ExitError); ok {
+			log.Logger.WithError(err).WithFields(logrus.Fields{
 				"track_title":   tmpTrack.Title,
-				"youtube_title": res.Title,
-				"youtube_id":    res.ID,
-				"track_dur":     tmpTrack.Duration,
-				"youtube_dur":   resultDuration,
-			}).Info("Found suitable YouTube video for track")
-			return res.ID, nil
+				"yt-dlp_stderr": string(ee.Stderr),
+			}).Error("yt-dlp search failed")
 		}
+		return "", fmt.Errorf("yt-dlp search failed for query '%s': %w", searchQuery, err)
 	}
 
-	err = fmt.Errorf("could not find a suitable video for query: %s", searchQuery)
-	// using warn log
-	log.Logger.WithField("query", searchQuery).Warn("No YouTube video found within duration threshold")
-	return "", err
+	ytID := strings.TrimSpace(string(op))
+	if ytID == "" {
+		return "", fmt.Errorf("yt-dlp did not find a video for: %s", searchQuery)
+	}
+
+	log.Logger.WithFields(logrus.Fields{
+		"track_title": tmpTrack.Title,
+		"youtube_id":  ytID,
+	}).Info("Got the YT ID")
+
+	return ytID, nil
 }
 
 
@@ -229,12 +240,15 @@ func DownloadYtAudio(ytID, path, filePath string) (error) {
 			"attempt":     i + 1,
 			"max_retries": MAX_RETRIES,
 			"ytID":        ytID,
-		}).Info("Attempting to download video")
+		}).Info("Attempting to download Auido")
 		
 		cmd := exec.Command("yt-dlp",
 			"--no-playlist",
-			"-f", "140", 		// code for 128k M4A audio
-			"-o", filePath, 	// Specify the exact output file path and name
+			// "--cookies-from-browser", "chrome", 		// testing this
+			// "--cookies", "cookies.txt",				// testing this
+			// "-f", "140", 								// code for 128k M4A audio
+			"-f", "bestaudio/best", 					// best m4a audio
+			"-o", filePath, 							// Specify the exact output file path and name
 			videoURL,
 		)
 
@@ -260,7 +274,7 @@ func DownloadYtAudio(ytID, path, filePath string) (error) {
 
 		os.Remove(filePath)
 		time.Sleep(DELAY)
-		DELAY *= 2		
+		// DELAY *= 2	
 
 	}
 

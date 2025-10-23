@@ -40,7 +40,7 @@ func Spectrogram(sample []float64, sampleRate int) ([][]complex128, error) {
 	/*
 	ts creates a Hamming window. 
 	It's a bell-shaped curve that's applied to each chunk of audio before analysis. 
-	used to to prevent |spectral leakage| that happens when processing chunks of a continuous signal.
+	used to to prevent "spectral leakage" that happens when processing chunks of a continuous signal.
 	*/
 	window := make([]float64, frequencyBinSize)
 	for i := range window {

@@ -2,6 +2,7 @@ package spotify
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -9,8 +10,8 @@ import (
 
 	"github.com/sirupsen/logrus"
 
-	"github.com/ONESHO1/FINDR/backend/internal/log"
 	"github.com/ONESHO1/FINDR/backend/internal/config"
+	"github.com/ONESHO1/FINDR/backend/internal/log"
 )
 
 type Track struct {
@@ -115,4 +116,81 @@ func TrackInfo(link string) (*Track, error) {
 		Album:    result.Album.Name,
 		Duration: result.Duration / 1000,
 	}, nil
+}
+
+func PlaylistInfo(url string) ([]Track, error) {
+	re := regexp.MustCompile(`open\.spotify\.com\/playlist\/([a-zA-Z0-9]{22})`)
+	matches := re.FindStringSubmatch(url)
+	if len(matches) != 2 {
+		return nil, errors.New("invalid playlist URL")
+	}
+	id := matches[1]
+
+	var allTracks []Track
+	offset := 0
+	limit := 100
+
+	for {
+		endpoint := fmt.Sprintf("https://api.spotify.com/v1/playlists/%s/tracks?offset=%d&limit=%d", id, offset, limit)
+		statusCode, jsonResponse, err := spotifyRequest(endpoint)
+		if err != nil {
+			return nil, fmt.Errorf("request error: %w", err)
+		}
+		if statusCode != 200 {
+			return nil, fmt.Errorf("non-200 status: %d", statusCode)
+		}
+
+		var result struct {
+			Items []struct {
+				Track struct {
+					Name     string `json:"name"`
+					Duration int    `json:"duration_ms"`
+					Album    struct {
+						Name string `json:"name"`
+					} `json:"album"`
+					Artists []struct {
+						Name string `json:"name"`
+					} `json:"artists"`
+				} `json:"track"`
+			} `json:"items"`
+			Total int `json:"total"`
+		}
+		if err := json.Unmarshal([]byte(jsonResponse), &result); err != nil {
+			return nil, err
+		}
+
+		for _, item := range result.Items {
+			track := item.Track
+			var artists []string
+			for _, a := range track.Artists {
+				artists = append(artists, a.Name)
+			}
+			allTracks = append(allTracks, *(&Track{
+				Title:    track.Name,
+				Artist:   artists[0],
+				Artists:  artists,
+				Duration: track.Duration / 1000,
+				Album:    track.Album.Name,
+			}).buildTrack())
+		}
+
+		offset += limit
+		if offset >= result.Total {
+			break
+		}
+	}
+
+	return allTracks, nil
+}
+
+func (t *Track) buildTrack() *Track {
+	track := &Track{
+		Title:    t.Title,
+		Artist:   t.Artist,
+		Artists:  t.Artists,
+		Duration: t.Duration,
+		Album:    t.Album,
+	}
+
+	return track
 }
