@@ -33,3 +33,6 @@ backend/tmp/
 .DS_Store
 *.swp
 *~
+
+# Ignore cookies
+cookies.txt
