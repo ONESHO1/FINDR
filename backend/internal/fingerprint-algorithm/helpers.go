@@ -19,7 +19,8 @@ const (
 
 type Peak struct {
 	Time float64
-	Freq complex128
+	// Freq complex128
+	FreqIdx int
 }
 
 func Spectrogram(sample []float64, sampleRate int) ([][]complex128, error) {
@@ -31,37 +32,24 @@ func Spectrogram(sample []float64, sampleRate int) ([][]complex128, error) {
 		return nil, err
 	}
 
-	// length of the spectrogram
-	windowCount := len(downedSample) / (frequencyBinSize - hopSize)
-	// windowCount := (len(downedSample) - frequencyBinSize) / hopSize // Please try this as well
-
-	spectrogram := make([][]complex128, windowCount)
-
-	/*
-	ts creates a Hamming window. 
-	It's a bell-shaped curve that's applied to each chunk of audio before analysis. 
-	used to to prevent "spectral leakage" that happens when processing chunks of a continuous signal.
-	*/
 	window := make([]float64, frequencyBinSize)
 	for i := range window {
-		window[i] = 0.54 - 0.46 * math.Cos(2 * math.Pi * float64(i) / (float64(frequencyBinSize) - 1)) 
+		window[i] = 0.54 - 0.46 * math.Cos(2 * math.Pi * float64(i) / (float64(frequencyBinSize) - 1))
 	}
 
-	// Short-Time-Fourier-Transform | slides the window across the audio sample
-	for i := range windowCount {
-		// start and end of the current bin/chunk of audio that we have to convert (change hopsize to change this)
-		start := i * hopSize
-		end := min(start + frequencyBinSize, len(downedSample))
+	var spectrogram [][]complex128
+
+	for start := 0; start + frequencyBinSize <= len(downedSample); start += hopSize {
+		end := start + frequencyBinSize
 
 		bin := make([]float64, frequencyBinSize)
 		copy(bin, downedSample[start : end])
 
-		// apply hamming window to current audio bin/chunk [smoothes its ends to 0]
 		for j := range window {
 			bin[j] *= window[j]
-		}
+		} 
 
-		spectrogram[i] = FastFourierTransform(bin)
+		spectrogram = append(spectrogram, FastFourierTransform(bin))
 	}
 
 	return spectrogram, nil
@@ -175,7 +163,7 @@ func recursiveFFT(input []complex128) []complex128 {
 Gets the peaks (brightest points) from the spectrogram.
 It's often the stuff that identifies (is unique to) a particular song.
 */
-func GetPeaksFromSpectrogram(spectrogram [][]complex128, duration float64) []Peak {
+func GetPeaksFromSpectrogram(spectrogram [][]complex128, sampleRate int) []Peak {
 	if len(spectrogram) == 0 {
 		return []Peak{}
 	}
@@ -191,14 +179,11 @@ func GetPeaksFromSpectrogram(spectrogram [][]complex128, duration float64) []Pea
 
 	var peaks []Peak
 	// get length (in seconds) for a single bin (slice)
-	binDuration := duration / float64(len(spectrogram))
+	downsampledSampleRate := float64(sampleRate) / float64(downSampleRatio)
+	binDuration := float64(hopSize) / downsampledSampleRate 		// hope ts works
 
 	// iterate over slices
 	for i, bin := range spectrogram {
-		var maxMags []float64
-		var maxFreqs []complex128
-		var idx []float64
-
 		binMaxes := []maxes{}
 
 		// go through each band
@@ -219,32 +204,13 @@ func GetPeaksFromSpectrogram(spectrogram [][]complex128, duration float64) []Pea
 			binMaxes = append(binMaxes, maxi)
 		}
 
-		// sperate slices 
-		for _, value := range binMaxes {
-			maxMags = append(maxMags, value.maxMagnitude)
-			maxFreqs = append(maxFreqs, value.maxFrequency)
-			idx = append(idx, float64(value.frequencyIndex))
-		}
-
-		var maxMagnitudeSum float64
-
-		for _, m := range maxMags {
-			maxMagnitudeSum += m
-		}
-		/*
-		average magnitude from all the bands' max / loudest / most intense
-		will use this as a threshold (idk if this is the way to do it, lets hope it works)
-		*/
-		avg := maxMagnitudeSum / float64(len(maxFreqs))
-
-		// filter out the peaks which are not above the average threshold
-		for j, value := range maxMags {
-			if value > avg {
-				peakBin := idx[j] * binDuration / float64(len(bin))
-
-				peakTime := float64(i) * binDuration + peakBin
-
-				peaks = append(peaks, Peak{Time: peakTime, Freq: maxFreqs[j]})
+		// add the strongest peak from every frequency band
+		// makes it  more resistant to background noise
+		for _, peakInfo := range binMaxes {
+			if peakInfo.maxMagnitude > 0 {
+				peakTime := float64(i) * binDuration
+				freqIdx := peakInfo.frequencyIndex
+				peaks = append(peaks, Peak{Time: peakTime, FreqIdx: freqIdx})
 			}
 		}
 	}
@@ -259,7 +225,7 @@ func Fingerprint(peaks []Peak, songID uint32) map[uint32]Couple {
 	// use each peak as an anchor point
 	for i, anchor := range peaks {
 		// change target zone size in the constants (ig the paper or the article said 5, thats what i have in my notes)
-		for j := i ; j < len(peaks) && j <= i + targetZoneSize ; j++ {
+		for j := i + 1 ; j < len(peaks) && j <= i + targetZoneSize ; j++ {
 			target := peaks[j]
 
 			hash := hash(anchor, target)
@@ -274,8 +240,8 @@ func Fingerprint(peaks []Peak, songID uint32) map[uint32]Couple {
 
 // create a hash for a anchor target pair
 func hash(anchor, target Peak) uint32 {
-	anchorFrequency := int(real(anchor.Freq))
-	targetFrequency := int(real(target.Freq))
+	anchorFrequency := anchor.FreqIdx
+	targetFrequency := target.FreqIdx
 	// time difference in milliseconds also
 	deltaMs := uint32((target.Time - anchor.Time) * 1000)
 

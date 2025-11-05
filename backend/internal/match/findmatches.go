@@ -31,7 +31,7 @@ func FindMatches(sample []float64, duration float64, sampleRate int) ([]Match, t
 		return nil, time.Since(start), err
 	} 
 
-	peaks := fingerprintalgorithm.GetPeaksFromSpectrogram(spectrogram, duration)
+	peaks := fingerprintalgorithm.GetPeaksFromSpectrogram(spectrogram, sampleRate)
 	sampleFingerprint := fingerprintalgorithm.Fingerprint(peaks, rand.Uint32())
 
 	sampleFingerprintMap := make(map[uint32]uint32)
@@ -40,6 +40,10 @@ func FindMatches(sample []float64, duration float64, sampleRate int) ([]Match, t
 	}
 
 	matches, err := findMatchesFromDb(sampleFingerprintMap)
+	if err != nil {
+		log.Logger.WithError(err).Error("error finding matches")
+		return nil, time.Since(start), err
+	}
 
 	return matches, time.Since(start), nil
 }
@@ -87,7 +91,7 @@ func findMatchesFromDb(sampleFingerprintMap map[uint32]uint32) ([]Match, error) 
 
 	/* 
 	get the score for each songID from the differences in the recording time and db(saved) time
-	I can't get myself t write O(N^3) after doing so many lc qns xD
+	I can't get myself to write O(N^3) after doing so many lc qns xD
 	*/
 	for songID, times := range matches {
 		count := 0

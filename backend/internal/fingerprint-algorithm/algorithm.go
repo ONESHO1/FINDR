@@ -28,7 +28,7 @@ func FingerprintFromSamples(sample []float64, sampleRate int, duration float64, 
 	}
 	
 	// extract peaks from spectrogram
-	peaks := GetPeaksFromSpectrogram(spectrogram, duration)
+	peaks := GetPeaksFromSpectrogram(spectrogram, sampleRate)
 	log.Logger.WithField("peak_count", len(peaks)).Debug("Extracted peaks from spectrogram")
 	// fmt.Println(peaks)
 

@@ -5,7 +5,7 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
-	"runtime"
+	// "runtime"
 	"strings"
 	"sync"
 	"time"
@@ -40,7 +40,7 @@ func download(tracks []sp.Track, path string) error {
 	results := make(chan int, len(tracks))
 
 	// get number of cores in our CPU
-	numCPUs := runtime.NumCPU()
+	// numCPUs := runtime.NumCPU()
 	// fmt.Println(numCPUs)
 
 	/*
@@ -55,7 +55,8 @@ func download(tracks []sp.Track, path string) error {
 		we ensure that a maximum of numCPUs goroutines can "acquire" a slot in the semaphore at any given time.
 		Any other goroutine trying to acquire a slot will block until one is freed.
 	*/
-	semaphore := make(chan struct{}, numCPUs)
+	// my machine can't handle ts so ima change it to download and fingerprint only ~3~ 1
+	semaphore := make(chan struct{}, 1)
 	// semaphore := make(chan struct{}, 4) // limit to 4 to prevent 403 errors ?
 
 	// establish DB connection
