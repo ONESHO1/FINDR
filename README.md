@@ -108,7 +108,7 @@ go run ./main.go findr
 
 The system is split into two main pipelines: **Ingestion** and **Matching**. The system's accuracy relies on both pipelines being 100% algorithmically identical.
 
-_(Architecture Diagram To Be Added Here)_
+<img width="10800" height="2720" alt="Basic working of the fingerprinting algorithm - excalidraw" src="https://github.com/user-attachments/assets/3936173f-ed53-41bc-a0aa-38712735c817" />
 
 ### 1. Ingestion Pipeline (Adding a Song)
 
